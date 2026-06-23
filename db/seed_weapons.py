@@ -1,5 +1,6 @@
 """
 weapons 마스터 컬렉션 초기 등록 스크립트.
+문서ID/code는 YOLO 모델의 클래스명(data_combined.yaml의 names)과 정확히 일치시킨다.
 실행: python seed_weapons.py
 specsVerified=False인 필드(길이/무게 등)는 공식 자료로 직접 확인 후 채울 것.
 """
@@ -7,7 +8,7 @@ from firebase_config import get_db
 
 WEAPONS = [
     {
-        "code": "K1",
+        "code": "k1",
         "officialName": "K1 기관단총",
         "type": "기관단총",
         "caliber": "5.56x45mm (KM193 / K100 혼용)",
@@ -20,7 +21,7 @@ WEAPONS = [
         "weightKg": None,
     },
     {
-        "code": "K2",
+        "code": "k2",
         "officialName": "K2 소총",
         "type": "돌격소총",
         "caliber": "5.56x45mm NATO (KM193 / K100 혼용)",
@@ -33,7 +34,7 @@ WEAPONS = [
         "weightKg": None,
     },
     {
-        "code": "K2C1",
+        "code": "k2c1",
         "officialName": "K2C1 소총",
         "type": "돌격소총(K2 개량형)",
         "caliber": "5.56x45mm NATO (K2와 동일)",
@@ -46,7 +47,7 @@ WEAPONS = [
         "weightKg": None,
     },
     {
-        "code": "M16A1",
+        "code": "m16",
         "officialName": "M16A1 소총",
         "type": "돌격소총",
         "caliber": "5.56x45mm (.223 Remington / KM193 기준)",
