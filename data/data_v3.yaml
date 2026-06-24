@@ -1,0 +1,13 @@
+# Roboflow에서 export한 m16image v3 데이터셋을 그대로 가리킵니다.
+# v3는 기존 m16 단일 클래스에 k1, k2c1 클래스 라벨링이 추가된 버전입니다.
+# ultralytics는 상대경로를 전역 datasets_dir 기준으로 해석하는 경우가 있어,
+# 절대경로로 고정했습니다. 프로젝트 폴더를 옮기면 이 경로도 함께 수정해야 합니다.
+path: "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/My First Project.v3i.yolov8"
+train: train/images
+val: valid/images
+test: test/images
+
+names:
+  0: k1
+  1: k2c1
+  2: m16

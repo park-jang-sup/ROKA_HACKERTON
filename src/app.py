@@ -2,18 +2,15 @@ import cv2
 import numpy as np
 import streamlit as st
 from PIL import Image
-from ultralytics import YOLO
 
-from count_utils import count_by_class
+from pipeline import DEFAULT_WEIGHTS, detect_firearms, load_model
 
 st.set_page_config(page_title="군수물자(총기류) 탐지", layout="wide")
 
-WEIGHTS_PATH = "models/firearms_yolo/weights/best.pt"  # 학습 후 실제 경로로 교체
-
 
 @st.cache_resource
-def load_model(weights_path: str) -> YOLO:
-    return YOLO(weights_path)
+def get_model(weights_path: str):
+    return load_model(weights_path)
 
 
 st.title("YOLO 기반 군수품(총기류) 탐지 및 카운팅")
@@ -22,10 +19,10 @@ uploaded_file = st.file_uploader("사진을 업로드하세요", type=["jpg", "j
 conf_threshold = st.slider("탐지 confidence 임계값", 0.0, 1.0, 0.7, 0.05)
 
 if uploaded_file is not None:
-    model = load_model(WEIGHTS_PATH)
+    model = get_model(DEFAULT_WEIGHTS)
 
     image = Image.open(uploaded_file).convert("RGB")
-    results = model.predict(source=np.array(image), conf=conf_threshold)
+    counts, results = detect_firearms(model, np.array(image), conf=conf_threshold)
 
     annotated_bgr = results[0].plot()
     annotated_rgb = cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB)
@@ -36,7 +33,6 @@ if uploaded_file is not None:
     with col2:
         st.image(annotated_rgb, caption="탐지 결과", use_container_width=True)
 
-    counts = count_by_class(results, model.names)
     st.subheader("종류별 개수")
     if counts:
         st.table({"종류": list(counts.keys()), "개수": list(counts.values())})

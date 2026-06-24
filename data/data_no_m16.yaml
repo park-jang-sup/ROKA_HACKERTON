@@ -1,0 +1,17 @@
+# m16 클래스를 제거한 3-클래스(k1, k2c1, k2) 학습용 yaml.
+# m16image/My First Project.v3i.yolov8 에서 m16 단독 라벨 이미지를 제외한
+# My First Project.v3i.yolov8_no_m16 사본 + K2dataset(class id를 2로 리매핑한 사본)을 합칩니다.
+train:
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/My First Project.v3i.yolov8_no_m16/train/images"
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/K2dataset.v1i.yolov8_remapped_to2/train/images"
+val:
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/My First Project.v3i.yolov8_no_m16/valid/images"
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/K2dataset.v1i.yolov8_remapped_to2/valid/images"
+test:
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/My First Project.v3i.yolov8_no_m16/test/images"
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/K2dataset.v1i.yolov8_remapped_to2/test/images"
+
+names:
+  0: k1
+  1: k2c1
+  2: k2

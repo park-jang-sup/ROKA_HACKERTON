@@ -1,0 +1,19 @@
+# m16image v3 데이터셋(k1, k2c1, m16) + K2dataset(K2)을 합친 4-클래스 학습용 yaml.
+# K2dataset 라벨은 원래 class id 0(K2 단일 클래스)이라
+# v3의 k1/k2c1/m16(0/1/2)과 합치기 위해 m16image/K2dataset.v1i.yolov8_remapped_to3 에서
+# class id를 3으로 바꾼 복사본을 사용합니다.
+train:
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/My First Project.v3i.yolov8/train/images"
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/K2dataset.v1i.yolov8_remapped_to3/train/images"
+val:
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/My First Project.v3i.yolov8/valid/images"
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/K2dataset.v1i.yolov8_remapped_to3/valid/images"
+test:
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/My First Project.v3i.yolov8/test/images"
+  - "C:/Users/yjhas/OneDrive/바탕 화면/hakertonProject/m16image/K2dataset.v1i.yolov8_remapped_to3/test/images"
+
+names:
+  0: k1
+  1: k2c1
+  2: m16
+  3: k2
