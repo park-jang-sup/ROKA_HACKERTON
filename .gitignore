@@ -68,3 +68,6 @@ train_log*.txt
 
 # 데이터셋 원본
 m16image/
+
+# 서버 배포용 모델은 추적함
+!server/best.pt
