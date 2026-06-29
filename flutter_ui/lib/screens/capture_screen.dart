@@ -194,8 +194,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
     try {
       // ── YOLO 서버 전송 ──
-      final request =
-          http.MultipartRequest('POST', Uri.parse(AppConfig.detectApiUrl))
+      // read_serial=false: 서버 OCR 비활성화 (일련번호는 Flutter에서 직접 처리)
+      final detectUri = Uri.parse(AppConfig.detectApiUrl)
+          .replace(queryParameters: {'read_serial': 'false'});
+      final request = http.MultipartRequest('POST', detectUri)
             ..files.add(await http.MultipartFile.fromPath(
               'file',
               photo.path,
