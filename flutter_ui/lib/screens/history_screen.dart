@@ -10,8 +10,18 @@ DateTime? _parseTs(dynamic v) {
   return null;
 }
 
-class HistoryScreen extends StatelessWidget {
+class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
+
+  @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<HistoryScreen> {
+  static const _weaponOrder = ['K-2', 'K-1A', 'K2C1'];
+
+  /// 현재 펼쳐진 기종 집합
+  final Set<String> _open = {};
 
   @override
   Widget build(BuildContext context) {
@@ -36,17 +46,31 @@ class HistoryScreen extends StatelessWidget {
                           color: AppColors.gold, strokeWidth: 3),
                     );
                   }
-                  if (snapshot.hasError) {
-                    return _errorState();
-                  }
+                  if (snapshot.hasError) return _errorState();
+
                   final docs = snapshot.data?.docs ?? [];
                   if (docs.isEmpty) return _emptyState();
+
+                  // capturedAt 내림차순 순서를 유지하며 기종별로 그룹핑
+                  final byType = <String, List<Map<String, dynamic>>>{};
+                  for (final doc in docs) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final type = data['weaponType'] as String? ?? '';
+                    if (type.isEmpty) continue;
+                    byType.putIfAbsent(type, () => []).add(data);
+                  }
+
+                  // _weaponOrder 기준으로 필터링 (기록이 있는 기종만)
+                  final weapons =
+                      _weaponOrder.where(byType.containsKey).toList();
+                  if (weapons.isEmpty) return _emptyState();
+
                   return ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 108),
-                    itemCount: docs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, i) =>
-                        _recordCard(docs[i], i == 0),
+                    itemCount: weapons.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (_, i) =>
+                        _weaponGroup(weapons[i], byType[weapons[i]]!),
                   );
                 },
               ),
@@ -57,6 +81,7 @@ class HistoryScreen extends StatelessWidget {
     );
   }
 
+  // ── 헤더 ────────────────────────────────────────────────
   Widget _header() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -65,11 +90,9 @@ class HistoryScreen extends StatelessWidget {
         children: [
           Text('검사 내역',
               style: T.sans(
-                  size: 22,
-                  weight: FontWeight.w800,
-                  letterSpacing: -0.2)),
+                  size: 22, weight: FontWeight.w800, letterSpacing: -0.2)),
           const SizedBox(height: 2),
-          Text('촬영 저장 기록 · 최신순',
+          Text('기종별 점검 이력 · 탭하여 펼치기',
               style: T.sans(
                   size: 12.5,
                   weight: FontWeight.w500,
@@ -79,6 +102,7 @@ class HistoryScreen extends StatelessWidget {
     );
   }
 
+  // ── 빈 상태 / 에러 ───────────────────────────────────────
   Widget _emptyState() {
     return Center(
       child: Column(
@@ -127,15 +151,15 @@ class HistoryScreen extends StatelessWidget {
     );
   }
 
-  Widget _recordCard(DocumentSnapshot doc, bool isLatest) {
-    final data = doc.data() as Map<String, dynamic>;
+  // ── 기종 그룹 카드 ───────────────────────────────────────
+  Widget _weaponGroup(
+      String weaponType, List<Map<String, dynamic>> records) {
+    final latest = records.first; // 이미 capturedAt 내림차순 정렬됨
+    final isOpen = _open.contains(weaponType);
 
-    final weaponType = data['weaponType'] as String? ?? '-';
-    final qty = (data['confirmedQuantity'] as num?)?.toInt() ?? 0;
-    final authorized = (data['authorizedQuantity'] as num?)?.toInt() ?? 0;
-    final condition = data['condition'] as String? ?? 'good';
-    final remarks = (data['remarks'] as String? ?? '').trim();
-    final dateStr = _fmtDate(_parseTs(data['capturedAt']));
+    final qty = (latest['confirmedQuantity'] as num?)?.toInt() ?? 0;
+    final authorized = (latest['authorizedQuantity'] as num?)?.toInt() ?? 0;
+    final condition = latest['condition'] as String? ?? 'good';
     final shortage = authorized - qty;
 
     final conditionLabel = switch (condition) {
@@ -155,43 +179,181 @@ class HistoryScreen extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
       decoration: BoxDecoration(
-        color: isLatest
-            ? AppColors.gold.withOpacity(0.08)
-            : AppColors.card,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-            color: isLatest
-                ? AppColors.gold.withOpacity(0.4)
-                : AppColors.borderSoft),
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderSoft),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          // ── 그룹 헤더 (탭하면 토글) ──
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() =>
+                isOpen ? _open.remove(weaponType) : _open.add(weaponType)),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: conditionColor.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(conditionIcon, size: 20, color: conditionColor),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(weaponType,
+                                style: T.mono(
+                                    size: 16, weight: FontWeight.w700)),
+                            const SizedBox(width: 8),
+                            _badge(conditionLabel, conditionColor),
+                            const SizedBox(width: 6),
+                            _badge('${records.length}건', AppColors.textSub,
+                                bg: AppColors.inner),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '최근 점검 ${_fmtDate(_parseTs(latest['capturedAt']))}',
+                          style: T.sans(
+                              size: 12,
+                              weight: FontWeight.w500,
+                              color: AppColors.textSub),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text.rich(TextSpan(children: [
+                        TextSpan(
+                            text: '$qty',
+                            style: T.mono(
+                                size: 18,
+                                weight: FontWeight.w700,
+                                color: shortage > 0
+                                    ? AppColors.terracotta
+                                    : AppColors.goldLight)),
+                        TextSpan(
+                            text: ' / $authorized',
+                            style: T.sans(
+                                size: 12,
+                                weight: FontWeight.w500,
+                                color: AppColors.textSub)),
+                      ])),
+                      const SizedBox(height: 1),
+                      Text(
+                        shortage > 0
+                            ? '부족 $shortage정'
+                            : shortage < 0
+                                ? '초과 ${-shortage}정'
+                                : '편제 일치',
+                        style: T.sans(
+                            size: 11,
+                            weight: FontWeight.w500,
+                            color: shortage != 0
+                                ? AppColors.terracotta
+                                : AppColors.textSub),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedRotation(
+                    turns: isOpen ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(Icons.keyboard_arrow_down_rounded,
+                        size: 20, color: AppColors.textSub),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // ── 펼침: 전체 이력 목록 ──
+          if (isOpen)
+            Container(
+              decoration: const BoxDecoration(
+                  border:
+                      Border(top: BorderSide(color: AppColors.borderSoft))),
+              child: Column(
+                children: [
+                  for (int i = 0; i < records.length; i++)
+                    _historyRow(
+                      records[i],
+                      isLatest: i == 0,
+                      divider: i < records.length - 1,
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── 펼침 내 개별 이력 행 ─────────────────────────────────
+  Widget _historyRow(
+    Map<String, dynamic> data, {
+    required bool isLatest,
+    required bool divider,
+  }) {
+    final qty = (data['confirmedQuantity'] as num?)?.toInt() ?? 0;
+    final authorized = (data['authorizedQuantity'] as num?)?.toInt() ?? 0;
+    final condition = data['condition'] as String? ?? 'good';
+    final remarks = (data['remarks'] as String? ?? '').trim();
+    final dateStr = _fmtDate(_parseTs(data['capturedAt']));
+    final shortage = authorized - qty;
+
+    final conditionLabel = switch (condition) {
+      'repair' => '정비요',
+      'unusable' => '불용',
+      _ => '양호',
+    };
+    final conditionColor = switch (condition) {
+      'repair' => AppColors.terracotta,
+      'unusable' => AppColors.red,
+      _ => AppColors.gold,
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isLatest ? AppColors.gold.withOpacity(0.06) : Colors.transparent,
+        border: divider
+            ? const Border(bottom: BorderSide(color: AppColors.borderSoft))
+            : null,
       ),
       child: Row(
         children: [
-          // 아이콘
           Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: conditionColor.withOpacity(0.14),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child:
-                Icon(conditionIcon, size: 20, color: conditionColor),
+            width: 7,
+            height: 7,
+            decoration:
+                BoxDecoration(color: conditionColor, shape: BoxShape.circle),
           ),
           const SizedBox(width: 12),
-          // 중앙 텍스트
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Text(weaponType,
-                        style: T.sans(
-                            size: 15, weight: FontWeight.w700)),
-                    const SizedBox(width: 7),
-                    _badge(conditionLabel, conditionColor),
+                    Text(dateStr,
+                        style: T.mono(
+                            size: 12.5,
+                            weight: FontWeight.w500,
+                            color: AppColors.textSub)),
                     if (isLatest) ...[
                       const SizedBox(width: 6),
                       _badge('최근', AppColors.goldLight,
@@ -199,20 +361,19 @@ class HistoryScreen extends StatelessWidget {
                     ],
                   ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  remarks.isNotEmpty ? '$dateStr · $remarks' : dateStr,
-                  style: T.sans(
-                      size: 12,
-                      weight: FontWeight.w500,
-                      color: AppColors.textSub),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                if (remarks.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(remarks,
+                      style: T.sans(
+                          size: 12,
+                          weight: FontWeight.w500,
+                          color: AppColors.textMute),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ],
               ],
             ),
           ),
-          // 오른쪽 수량
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -220,7 +381,7 @@ class HistoryScreen extends StatelessWidget {
                 TextSpan(
                     text: '$qty',
                     style: T.mono(
-                        size: 18,
+                        size: 14,
                         weight: FontWeight.w700,
                         color: shortage > 0
                             ? AppColors.terracotta
@@ -228,24 +389,12 @@ class HistoryScreen extends StatelessWidget {
                 TextSpan(
                     text: ' / $authorized',
                     style: T.sans(
-                        size: 12,
-                        weight: FontWeight.w500,
+                        size: 11,
+                        weight: FontWeight.w400,
                         color: AppColors.textSub)),
               ])),
-              const SizedBox(height: 1),
-              Text(
-                shortage > 0
-                    ? '부족 $shortage정'
-                    : shortage < 0
-                        ? '초과 ${-shortage}정'
-                        : '편제 일치',
-                style: T.sans(
-                    size: 11,
-                    weight: FontWeight.w500,
-                    color: shortage != 0
-                        ? AppColors.terracotta
-                        : AppColors.textSub),
-              ),
+              const SizedBox(height: 2),
+              _badge(conditionLabel, conditionColor),
             ],
           ),
         ],
@@ -253,6 +402,7 @@ class HistoryScreen extends StatelessWidget {
     );
   }
 
+  // ── 공통 유틸 ────────────────────────────────────────────
   Widget _badge(String text, Color color, {Color? bg}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -261,8 +411,7 @@ class HistoryScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(text,
-          style: T.sans(
-              size: 10.5, weight: FontWeight.w700, color: color)),
+          style: T.sans(size: 10.5, weight: FontWeight.w700, color: color)),
     );
   }
 

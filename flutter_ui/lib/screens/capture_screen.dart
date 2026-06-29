@@ -8,11 +8,23 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../config.dart';
 import '../models/weapon.dart';
 import '../repositories/weapon_repository.dart';
 import '../theme.dart';
 
 enum _ScreenState { idle, loading, result }
+
+MediaType _mimeTypeOf(String path) {
+  final ext = path.split('.').last.toLowerCase();
+  return switch (ext) {
+    'png' => MediaType('image', 'png'),
+    'webp' => MediaType('image', 'webp'),
+    'gif' => MediaType('image', 'gif'),
+    'heic' || 'heif' => MediaType('image', 'heic'),
+    _ => MediaType('image', 'jpeg'),
+  };
+}
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
@@ -51,15 +63,23 @@ class _CaptureScreenState extends State<CaptureScreen> {
   // ── 저장 중 플래그 ──────────────────────────────────────
   bool _saving = false;
 
+  // ── 이번 촬영 세션에서 저장 완료된 기종 집합 ──────────────
+  final Set<String> _inspectedModels = {};
+
+  // ── 로딩 메시지 (Cold Start 감지용) ────────────────────────
+  bool _coldStartWarning = false;
+  Timer? _coldStartTimer;
+
   // ── 총기 데이터 (Firestore weapons 실시간 스트림) ────────
   Map<String, Weapon> _weaponMap = Map.of(Weapon.fallbacks);
   StreamSubscription<Map<String, Weapon>>? _weaponSub;
 
   int get _authorized => _weaponMap[_model]?.authorizedQuantity ?? 0;
   String get _serial => _defaultSerials[_model] ?? '-';
+  // 기종별 수동 입력 총번 — YOLO로 개별 총번 식별 불가이므로 사용자가 직접 수정
+  final Map<String, String> _serialOverrides = {};
+  String get _displaySerial => _serialOverrides[_model] ?? _serial;
   static const _unit = '정';
-  static const _serverUrl = 'https://roka-hackerton-925288025067.asia-northeast3.run.app/detect';
-  static const _modelVersion = 'firearms_yolo_no_m16';
 
   @override
   void initState() {
@@ -77,6 +97,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
   @override
   void dispose() {
     _weaponSub?.cancel();
+    _coldStartTimer?.cancel();
     _remarksController.dispose();
     super.dispose();
   }
@@ -95,18 +116,31 @@ class _CaptureScreenState extends State<CaptureScreen> {
       return;
     }
 
-    setState(() => _screenState = _ScreenState.loading);
+    _remarksController.clear();
+    setState(() {
+      _qty = 0;
+      _condition = 'good';
+      _screenState = _ScreenState.loading;
+      _coldStartWarning = false;
+    });
+    // 8초 이상 대기 시 Cold Start 안내로 전환
+    _coldStartTimer?.cancel();
+    _coldStartTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted && _screenState == _ScreenState.loading) {
+        setState(() => _coldStartWarning = true);
+      }
+    });
 
     try {
       // ── YOLO 서버 전송 ──
-      final request = http.MultipartRequest('POST', Uri.parse(_serverUrl))
+      final request = http.MultipartRequest('POST', Uri.parse(AppConfig.detectApiUrl))
         ..files.add(await http.MultipartFile.fromPath(
           'file',
           photo.path,
-          contentType: MediaType('image', 'jpeg'),
+          contentType: _mimeTypeOf(photo.path),
         ));
 
-      final streamed = await request.send().timeout(const Duration(seconds: 30));
+      final streamed = await request.send().timeout(const Duration(seconds: 60));
       final response = await http.Response.fromStream(streamed);
 
       if (response.statusCode != 200) {
@@ -147,10 +181,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
         _confirmedDetections = detections; // detectionRecords.confirmedDetections
         _summary = counts;                  // detectionRecords.summary
         _screenState = _ScreenState.result;
+        _coldStartWarning = false;
       });
+      _coldStartTimer?.cancel();
     } catch (e) {
+      _coldStartTimer?.cancel();
       _showError('서버 연결 실패 — YOLO 서버가 실행 중인지 확인하세요.');
-      setState(() => _screenState = _ScreenState.idle);
+      setState(() {
+        _screenState = _ScreenState.idle;
+        _coldStartWarning = false;
+      });
     }
   }
 
@@ -183,7 +223,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
         'capturedAt': FieldValue.serverTimestamp(),
         'confirmedDetections': _confirmedDetections,
         'summary': _summary,
-        'modelVersion': _modelVersion,
+        'modelVersion': AppConfig.modelVersion,
         // ── Flutter에서 추가되는 사용자 확인 데이터 ──
         'weaponType': _model,
         'confirmedQuantity': _qty,
@@ -192,11 +232,126 @@ class _CaptureScreenState extends State<CaptureScreen> {
         'condition': _condition,
         'remarks': _remarksController.text.trim(),
       });
-      if (mounted) _showSaved();
+      if (mounted) {
+        setState(() => _inspectedModels.add(_model));
+        _showSaved();
+      }
     } catch (e) {
       _showError('Firestore 저장 실패 — Firebase 연결을 확인하세요.');
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _showSerialEditDialog() async {
+    final ctrl = TextEditingController(text: _displaySerial);
+    try {
+      final result = await showDialog<String>(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(22, 26, 22, 20),
+            decoration: BoxDecoration(
+              color: AppColors.card,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('총번 수정',
+                    style: T.sans(size: 17, weight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text('$_model 기종의 총번을 직접 입력하세요',
+                    style: T.sans(
+                        size: 12.5,
+                        weight: FontWeight.w500,
+                        color: AppColors.textSub)),
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.inner,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.borderSoft),
+                  ),
+                  child: TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    style: T.mono(
+                        size: 16,
+                        weight: FontWeight.w600,
+                        letterSpacing: 0.6),
+                    cursorColor: AppColors.gold,
+                    decoration: InputDecoration(
+                      hintText: '예: K2-2231140',
+                      hintStyle: T.mono(
+                          size: 15,
+                          weight: FontWeight.w400,
+                          color: AppColors.textMute),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 11),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => Navigator.pop(ctx),
+                        child: Container(
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: const Color(0x0FFFFFFF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                              child: Text('취소',
+                                  style: T.sans(
+                                      size: 14.5,
+                                      weight: FontWeight.w700,
+                                      color: AppColors.textSub))),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => Navigator.pop(ctx, ctrl.text.trim()),
+                        child: Container(
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: AppColors.gold,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                              child: Text('확인',
+                                  style: T.sans(
+                                      size: 14.5,
+                                      weight: FontWeight.w800,
+                                      color: const Color(0xFF2A2310)))),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (result != null && result.isNotEmpty && mounted) {
+        setState(() => _serialOverrides[_model] = result);
+      }
+    } finally {
+      ctrl.dispose();
     }
   }
 
@@ -239,17 +394,23 @@ class _CaptureScreenState extends State<CaptureScreen> {
                   color: AppColors.gold, strokeWidth: 3),
             ),
             const SizedBox(height: 22),
-            Text('AI 분석 중...',
-                style: T.sans(
-                    size: 16,
-                    weight: FontWeight.w700,
-                    color: AppColors.goldLightest)),
+            Text(
+              _coldStartWarning ? '서버 시작 중...' : 'AI 분석 중...',
+              style: T.sans(
+                  size: 16,
+                  weight: FontWeight.w700,
+                  color: AppColors.goldLightest),
+            ),
             const SizedBox(height: 6),
-            Text('YOLO 모델이 총기류를 인식하고 있습니다',
-                style: T.sans(
-                    size: 13,
-                    weight: FontWeight.w500,
-                    color: AppColors.textSub)),
+            Text(
+              _coldStartWarning
+                  ? '잠시만 기다려주세요 (서버 초기화 중)'
+                  : 'YOLO 모델이 총기류를 인식하고 있습니다',
+              style: T.sans(
+                  size: 13,
+                  weight: FontWeight.w500,
+                  color: AppColors.textSub),
+            ),
           ],
         ),
       ),
@@ -502,7 +663,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                               weight: FontWeight.w800,
                               letterSpacing: -0.2)),
                       const SizedBox(height: 1),
-                      Text('정기재물조사 · 진행 12 / 30 품목',
+                      Text('정기재물조사 · 진행 ${_inspectedModels.length} / ${_weaponOrder.length} 기종',
                           style: T.sans(
                               size: 12,
                               weight: FontWeight.w500,
@@ -887,7 +1048,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                         weight: FontWeight.w500,
                         color: AppColors.textSub)),
                 const SizedBox(height: 5),
-                Text(_serial,
+                Text(_displaySerial,
                     style: T.mono(
                         size: 18,
                         weight: FontWeight.w600,
@@ -895,22 +1056,25 @@ class _CaptureScreenState extends State<CaptureScreen> {
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 13, vertical: 8),
-            decoration: BoxDecoration(
-                color: const Color(0x0FFFFFFF),
-                borderRadius: BorderRadius.circular(9)),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.edit_outlined,
-                  size: 13, color: AppColors.textSoft),
-              const SizedBox(width: 5),
-              Text('수정',
-                  style: T.sans(
-                      size: 13,
-                      weight: FontWeight.w600,
-                      color: AppColors.textSoft)),
-            ]),
+          GestureDetector(
+            onTap: _showSerialEditDialog,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 13, vertical: 8),
+              decoration: BoxDecoration(
+                  color: const Color(0x0FFFFFFF),
+                  borderRadius: BorderRadius.circular(9)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.edit_outlined,
+                    size: 13, color: AppColors.textSoft),
+                const SizedBox(width: 5),
+                Text('수정',
+                    style: T.sans(
+                        size: 13,
+                        weight: FontWeight.w600,
+                        color: AppColors.textSoft)),
+              ]),
+            ),
           ),
         ],
       ),

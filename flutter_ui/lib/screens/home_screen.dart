@@ -7,6 +7,7 @@ import '../models/weapon.dart';
 import '../repositories/weapon_repository.dart';
 import '../theme.dart';
 import 'capture_screen.dart';
+import 'inventory_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -119,10 +120,10 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('행정보급관님',
+          Text('김보급 상사',
               style: T.sans(size: 23, weight: FontWeight.w800, letterSpacing: -0.2)),
           const SizedBox(height: 4),
-          Text('제0000부대 · 정기재물조사 진행중',
+          Text('행정보급관 · 제0000부대 보급대',
               style: T.sans(size: 13, weight: FontWeight.w500, color: AppColors.textSub)),
           const SizedBox(height: 18),
           _datePill(),
@@ -292,11 +293,17 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: AppColors.terracotta)),
                   ],
                 ),
-                Text('전체보기',
-                    style: T.sans(
-                        size: 13,
-                        weight: FontWeight.w500,
-                        color: AppColors.textSub)),
+                GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const InventoryListScreen()),
+                  ),
+                  child: Text('전체보기',
+                      style: T.sans(
+                          size: 13,
+                          weight: FontWeight.w500,
+                          color: AppColors.textSub)),
+                ),
               ],
             ),
           ),

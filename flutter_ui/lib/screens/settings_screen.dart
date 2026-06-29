@@ -38,6 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+
     _recordsSub = FirebaseFirestore.instance
         .collection('detectionRecords')
         .orderBy('capturedAt', descending: true)
