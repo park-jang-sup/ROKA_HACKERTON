@@ -1,83 +1,17 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../config.dart';
 import '../models/weapon.dart';
 import '../repositories/weapon_repository.dart';
+import '../services/yolo_detector.dart';
 import '../theme.dart';
 
 enum _ScreenState { idle, loading, result }
-
-MediaType _mimeTypeOf(String path) {
-  final ext = path.split('.').last.toLowerCase();
-  return switch (ext) {
-    'png' => MediaType('image', 'png'),
-    'webp' => MediaType('image', 'webp'),
-    'gif' => MediaType('image', 'gif'),
-    'heic' || 'heif' => MediaType('image', 'heic'),
-    _ => MediaType('image', 'jpeg'),
-  };
-}
-
-String _compactBody(String body, {int maxLength = 500}) {
-  final compacted = body.replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (compacted.length <= maxLength) return compacted;
-  return '${compacted.substring(0, maxLength)}...';
-}
-
-Map<String, int> _parseCounts(Object? rawCounts, String responseBody) {
-  if (rawCounts is! Map) {
-    throw FormatException(
-      'Invalid response: counts is missing or not a map. body=${_compactBody(responseBody)}',
-    );
-  }
-
-  return rawCounts.map<String, int>((key, value) {
-    if (value is! num) {
-      throw FormatException(
-        'Invalid response: counts[$key] is not a number. body=${_compactBody(responseBody)}',
-      );
-    }
-    return MapEntry(key.toString(), value.toInt());
-  });
-}
-
-List<Map<String, dynamic>> _parseDetections(
-  Object? rawDetections,
-  String responseBody,
-) {
-  if (rawDetections is! List) {
-    throw FormatException(
-      'Invalid response: detections is missing or not a list. body=${_compactBody(responseBody)}',
-    );
-  }
-
-  return rawDetections.map<Map<String, dynamic>>((item) {
-    if (item is! Map) {
-      throw FormatException(
-        'Invalid response: detections contains a non-object item. body=${_compactBody(responseBody)}',
-      );
-    }
-    return item.map((key, value) => MapEntry(key.toString(), value));
-  }).toList();
-}
-
-String _parseAnnotatedImage(Map<String, dynamic> data) {
-  final rawAnnotated = data['annotatedImage'] ?? data['annotated_image'];
-  if (rawAnnotated is! String || rawAnnotated.isEmpty) {
-    throw const FormatException(
-      'Invalid response: annotatedImage is missing or empty.',
-    );
-  }
-  return rawAnnotated;
-}
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
@@ -123,10 +57,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
   // ── 이번 촬영 세션에서 저장 완료된 기종 집합 ──────────────
   final Set<String> _inspectedModels = {};
 
-  // ── 로딩 메시지 (Cold Start 감지용) ────────────────────────
-  bool _coldStartWarning = false;
-  Timer? _coldStartTimer;
-
   // ── 총기 데이터 (Firestore weapons 실시간 스트림) ────────
   Map<String, Weapon> _weaponMap = Map.of(Weapon.fallbacks);
   StreamSubscription<Map<String, Weapon>>? _weaponSub;
@@ -154,7 +84,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
   @override
   void dispose() {
     _weaponSub?.cancel();
-    _coldStartTimer?.cancel();
     _remarksController.dispose();
     for (final c in _serialControllers) c.dispose();
     super.dispose();
@@ -182,89 +111,51 @@ class _CaptureScreenState extends State<CaptureScreen> {
       _qty = 0;
       _condition = 'good';
       _screenState = _ScreenState.loading;
-      _coldStartWarning = false;
-    });
-    // 10초 이상 대기 시 Cold Start 안내로 전환
-    _coldStartTimer?.cancel();
-    _coldStartTimer = Timer(const Duration(seconds: 10), () {
-      if (mounted && _screenState == _ScreenState.loading) {
-        setState(() => _coldStartWarning = true);
-      }
     });
 
     try {
-      // ── YOLO 서버 전송 ──
-      // read_serial=false: 서버 OCR 비활성화 (일련번호는 Flutter에서 직접 처리)
-      final detectUri = Uri.parse(AppConfig.detectApiUrl)
-          .replace(queryParameters: {'read_serial': 'false'});
-      final request = http.MultipartRequest('POST', detectUri)
-            ..files.add(await http.MultipartFile.fromPath(
-              'file',
-              photo.path,
-              contentType: _mimeTypeOf(photo.path),
-            ));
+      // ── 온디바이스 YOLO 추론 ──
+      final imageBytes = await photo.readAsBytes();
+      final result = await YoloDetector.instance.detect(imageBytes);
 
-      final streamed =
-          await request.send().timeout(const Duration(seconds: 120));
-      final response = await http.Response.fromStream(streamed)
-          .timeout(const Duration(seconds: 120));
-
-      if (response.statusCode != 200) {
-        _showError(
-            '서버 오류 (${response.statusCode}): ${_compactBody(response.body)}');
-        setState(() => _screenState = _ScreenState.idle);
-        return;
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      // detectionRecords 스키마 필드명으로 파싱
-      final counts = _parseCounts(data['counts'], response.body);
-      final detections = _parseDetections(data['detections'], response.body);
-      final annotatedB64 = _parseAnnotatedImage(data);
-
-      if (counts.isEmpty) {
+      if (result.counts.isEmpty) {
         _showError('총기류가 인식되지 않았습니다. 다시 촬영해 주세요.');
         setState(() => _screenState = _ScreenState.idle);
         return;
       }
 
       // 가장 많이 탐지된 YOLO 클래스
-      final dominantYolo =
-          counts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+      final dominantYolo = result.counts.entries
+          .reduce((a, b) => a.value >= b.value ? a : b)
+          .key;
       final mappedModel = Weapon.yoloToDisplayName(dominantYolo);
-      final maxConf = detections.isEmpty
+      final maxConf = result.detections.isEmpty
           ? 0.0
-          : detections
+          : result.detections
               .map((d) => (d['confidence'] as num).toDouble())
               .reduce((a, b) => a > b ? a : b);
 
       // weapons 제원은 initState에서 구독 중인 _weaponMap에서 즉시 사용 가능
-      final detectedQty = counts[dominantYolo] ?? 0;
+      final detectedQty = result.counts[dominantYolo] ?? 0;
       setState(() {
         _model = _weaponMap.containsKey(mappedModel) ? mappedModel : 'K2';
         _qty = detectedQty;
         _confidence = maxConf;
-        _annotatedBytes = base64Decode(annotatedB64);
+        _annotatedBytes = result.annotatedBytes;
         _confirmedDetections =
-            detections; // detectionRecords.confirmedDetections
-        _summary = counts; // detectionRecords.summary
+            result.detections; // detectionRecords.confirmedDetections
+        _summary = result.counts; // detectionRecords.summary
         _screenState = _ScreenState.result;
-        _coldStartWarning = false;
       });
-      _coldStartTimer?.cancel();
       // 탐지 수량에 맞게 일련번호 입력 필드 초기화
       _serialControllers.addAll(
           List.generate(detectedQty, (_) => TextEditingController()));
       _serialLoading.addAll(List.filled(detectedQty, false));
     } catch (e, st) {
-      _coldStartTimer?.cancel();
-      debugPrint('YOLO request/parse failed: $e');
+      debugPrint('YOLO detection failed: $e');
       debugPrintStack(stackTrace: st);
       _showError('분석 결과 처리 실패: $e');
-      setState(() {
-        _screenState = _ScreenState.idle;
-        _coldStartWarning = false;
-      });
+      setState(() => _screenState = _ScreenState.idle);
     }
   }
 
@@ -404,7 +295,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
             ),
             const SizedBox(height: 22),
             Text(
-              _coldStartWarning ? '서버 시작 중...' : 'AI 분석 중...',
+              'AI 분석 중...',
               style: T.sans(
                   size: 16,
                   weight: FontWeight.w700,
@@ -412,9 +303,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              _coldStartWarning
-                  ? '잠시만 기다려주세요 (서버 초기화 중)'
-                  : 'YOLO 모델이 총기류를 인식하고 있습니다',
+              'YOLO 모델이 총기류를 인식하고 있습니다',
               style: T.sans(
                   size: 13, weight: FontWeight.w500, color: AppColors.textSub),
             ),

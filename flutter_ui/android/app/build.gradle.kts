@@ -21,7 +21,7 @@ android {
         applicationId = "com.example.defense_inventory"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 26 // tflite_flutter requires API 26+ (flutter.minSdkVersion default is 24)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

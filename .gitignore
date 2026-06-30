@@ -50,6 +50,9 @@ __pycache__/
 .venv/
 venv/
 
+# Claude Code local tool state
+.claude/
+
 # Firebase
 serviceAccountKey.json
 **/serviceAccountKey.json
@@ -58,7 +61,7 @@ serviceAccountKey.json
 firebase-debug.log
 firestore-debug.log
 
-# YOLO ÇÐ½À »êÃâ¹°
+# YOLO ï¿½Ð½ï¿½ ï¿½ï¿½ï¿½â¹°
 models/*
 !models/.gitkeep
 !models/firearms_yolo_no_m16/
@@ -66,6 +69,6 @@ runs/
 train_log*.txt
 *.pt
 
-# µ¥ÀÌÅÍ¼Â ¿øº»
+# ï¿½ï¿½ï¿½ï¿½ï¿½Í¼ï¿½ ï¿½ï¿½ï¿½ï¿½
 m16image/
 
