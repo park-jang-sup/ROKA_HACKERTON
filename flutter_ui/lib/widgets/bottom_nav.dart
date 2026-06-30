@@ -82,6 +82,6 @@ class AppBottomNav extends StatelessWidget {
 
   static const _homeIcon = Icons.home_rounded;
   static const _inventoryIcon = Icons.inventory_2_outlined;
-  static const _historyIcon = Icons.history_rounded;
+  static const _historyIcon = Icons.warehouse_outlined;
   static const _settingsIcon = Icons.tune_rounded;
 }
